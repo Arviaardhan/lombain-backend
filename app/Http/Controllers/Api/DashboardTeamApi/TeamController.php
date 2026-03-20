@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Team;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 
 class TeamController extends Controller
 {
@@ -25,6 +26,7 @@ class TeamController extends Controller
     {
         $request->validate([
             'name' => 'required|string',
+            'headline' => 'required|string|max:150',
             'competition_name' => 'required|string',
             'category' => 'required|string',
             'max_members' => 'required|integer|min:1',
@@ -38,7 +40,9 @@ class TeamController extends Controller
 
             $team = Team::create([
                 'name' => $request->name,
+                'headline' => $request->headline,
                 'competition_name' => $request->competition_name,
+                'short_description' => $request->short_description,
                 'description' => $request->description,
                 'category' => $request->category,
                 'max_members' => $request->max_members,
@@ -61,8 +65,8 @@ class TeamController extends Controller
             foreach ($request->roles as $roleData) {
 
                 $role = $team->roles()->create([
-                    'role_name' => $roleData['role_name'] ?? 'General Member', 
-                    'max_slot'  => $roleData['max_slot'] ?? 1,
+                    'role_name' => $roleData['role_name'] ?? 'General Member',
+                    'max_slot' => $roleData['max_slot'] ?? 1,
                 ]);
 
                 if (isset($roleData['skills'])) {
@@ -120,34 +124,98 @@ class TeamController extends Controller
         ]);
     }
 
-    // JOIN TEAM + CREATE JOIN REQUEST
-    public function join(Request $request, $teamId)
+    public function edit($id)
     {
-        $user = $request->user();
+        $team = Team::with(['roles.skills'])->findOrFail($id);
 
-        $exists = DB::table('team_user')
-            ->where('team_id', $teamId)
-            ->where('user_id', $user->id)
-            ->exists();
-
-        if ($exists) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Kamu sudah request/join team ini'
-            ], 400);
+        // Pastikan hanya leader yang bisa edit
+        if ($team->leader_id !== auth()->id()) {
+            return response()->json(['message' => 'Unauthorized'], 403);
         }
-
-        DB::table('team_user')->insert([
-            'team_id' => $teamId,
-            'user_id' => $user->id,
-            'status' => 'pending',
-            'created_at' => now(),
-            'updated_at' => now()
-        ]);
 
         return response()->json([
             'success' => true,
-            'message' => 'Request join berhasil'
+            'data' => $team
         ]);
+    }
+
+    // Proses Update Data
+    public function update(Request $request, $id)
+    {
+        $team = Team::findOrFail($id);
+
+        if ($team->leader_id !== auth()->id()) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
+        }
+
+        $request->validate([
+            'name' => 'sometimes|nullable|string',
+            'headline' => 'sometimes|nullable|string|max:150',
+            'competition_name' => 'sometimes|nullable|string',
+            'description' => 'nullable|string',
+            'category' => 'sometimes|nullable|string',
+            'deadline' => 'sometimes|nullable|date',
+        ]);
+
+        $team->update($request->only([
+            'name',
+            'headline',
+            'competition_name',
+            'description',
+            'category',
+            'max_members',
+            'deadline',
+            'guidebook_url'
+        ]));
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Team updated successfully!',
+            'data' => $team
+        ]);
+    }
+
+    // JOIN TEAM + CREATE JOIN REQUEST
+    public function join(Request $request, $id)
+    {
+        // 1. Matikan validasi Rule::exists sementara
+        $request->validate([
+            'role_id' => 'required', // Hanya pastikan role_id dikirim
+            'note' => 'nullable|string|max:500',
+        ]);
+
+        $user = auth()->user();
+        $id = (int) $id;
+
+        // 2. Debugging: Kita cek manual di sini sebelum insert
+        $roleExists = DB::table('team_roles')
+            ->where('id', $request->role_id)
+            ->where('team_id', $id)
+            ->exists();
+
+        if (!$roleExists) {
+            return response()->json([
+                'success' => false,
+                'message' => "Data Role ID {$request->role_id} untuk Team ID {$id} memang tidak ada di DB!",
+                'debug_info' => [
+                    'input_role_id' => $request->role_id,
+                    'input_team_id' => $id
+                ]
+            ], 422);
+        }
+
+        // 3. Jika lolos cek manual, masukkan data
+        DB::table('team_user')->updateOrInsert(
+            ['team_id' => $id, 'user_id' => $user->id],
+            [
+                'role_id' => $request->role_id,
+                'note' => $request->note,
+                'status' => 'pending',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]
+        );
+
+        return response()->json(['success' => true, 'message' => 'Akhirnya Ahmad Berhasil Join!']);
     }
 }

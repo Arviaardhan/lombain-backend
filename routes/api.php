@@ -33,11 +33,14 @@ Route::get('/explore/teams', [ExploreController::class, 'index']);
 
 // Protected Routes
 Route::middleware('auth:sanctum')->group(function () {
+    Route::post('/teams/assign-role', [TeamManagementController::class, 'assignRole']);
 
     // Team
     Route::post('/create-teams', [TeamController::class, 'store']);
     Route::get('/teams/{id}', [TeamController::class, 'show']);
     Route::post('/teams/{id}/join', [TeamController::class, 'join']);
+    Route::get('/teams/{id}/edit', [TeamController::class, 'edit']);
+    Route::post('/teams/{id}', [TeamController::class, 'update']);
 
     // My Teams
     Route::get('/my/teams', [UserTeamController::class, 'myTeams']);
@@ -46,7 +49,6 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/teams/{id}/requests', [TeamManagementController::class, 'requests']);
     Route::post('/teams/invite', [TeamManagementController::class, 'invite']);
     Route::post('/teams/respond-invite', [TeamManagementController::class, 'respondInvite']);
-    Route::post('/teams/assign-role', [TeamManagementController::class, 'assignRole']);
     Route::post('/teams/reject/{id}', [TeamManagementController::class, 'reject']);
     Route::delete('/teams/{teamId}/members/{userId}', [TeamManagementController::class, 'removeMember']);
 

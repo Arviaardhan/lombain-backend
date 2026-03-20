@@ -18,7 +18,7 @@ class TeamManagementController extends Controller
             ->join('users', 'users.id', '=', 'team_user.user_id')
             ->where('team_user.team_id', $teamId)
             ->whereIn('team_user.status', ['pending', 'invited'])
-            ->select('users.id', 'users.name', 'users.major', 'team_user.id as request_id', 'team_user.status')
+            ->select('users.id', 'users.name', 'users.major', 'team_user.id as request_id', 'team_user.status', 'team_user.note')
             ->get();
 
         return response()->json([
@@ -266,14 +266,27 @@ class TeamManagementController extends Controller
             return response()->json(['message' => 'Leader tidak bisa keluar dengan cara ini'], 400);
         }
 
+        $exists = DB::table('team_user')
+            ->where('team_id', $teamId)
+            ->where('user_id', $userId)
+            ->exists();
+
+        if (!$exists) {
+            return response()->json(['message' => 'Member tidak ditemukan'], 404);
+        }
+
         DB::table('team_user')
             ->where('team_id', $teamId)
             ->where('user_id', $userId)
-            ->delete();
+            ->update([
+                'status' => 'pending', 
+                'role_id' => null,     
+                'updated_at' => now()
+            ]);
 
         return response()->json([
             'success' => true,
-            'message' => 'Member berhasil dihapus'
+            'message' => 'Member berhasil dikembalikan ke daftar request'
         ]);
     }
 
