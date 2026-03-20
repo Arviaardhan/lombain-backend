@@ -23,6 +23,28 @@ class UserDashboardController extends Controller
             ->latest()
             ->get();
 
+        $managedTeamIds = $myManagedTeams->pluck('id');
+
+        $incomingRequests = DB::table('team_user')
+            ->join('teams', 'teams.id', '=', 'team_user.team_id')
+            ->join('users', 'users.id', '=', 'team_user.user_id')
+            ->leftJoin('team_roles', 'team_roles.id', '=', 'team_user.role_id') 
+            ->whereIn('team_user.team_id', $managedTeamIds)
+            ->where('team_user.status', 'pending')
+            ->select(
+                'team_user.id',
+                'team_user.team_id',
+                'users.name as user_name',
+                'teams.name as team_name',
+
+                'team_roles.role_name',
+
+                'team_user.status',
+                'team_user.note',
+                'team_user.created_at'
+            )
+            ->get();
+
         // Hitung total incoming requests untuk semua tim yang dipimpin dan akan muncul di Notifikasi
         $incomingRequestsCount = DB::table('team_user')
             ->join('teams', 'teams.id', '=', 'team_user.team_id')
@@ -57,6 +79,7 @@ class UserDashboardController extends Controller
             'success' => true,
             'data' => [
                 'managed_teams' => $myManagedTeams,
+                'incoming_requests' => $incomingRequests,
                 'joined_teams' => $myJoinedTeams,
                 'sent_requests' => $mySentRequests,
                 'invites' => $myInvites,

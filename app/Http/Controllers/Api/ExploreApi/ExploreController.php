@@ -10,27 +10,41 @@ class ExploreController extends Controller
 {
     public function index()
     {
-        $teams = Team::with('leader')
+        $teams = Team::with(['leader', 'roles.skills'])
             ->withCount('users')
             ->latest()
             ->paginate(10);
 
         $formatted = $teams->getCollection()->map(function ($team) {
+            // 1. Ambil deskripsi asli dari database
+            $fullDesc = $team->description ?? "Ayo bergabung dengan tim kami!";
+
+            // 2. Buat deskripsi singkat (Limit 120 karakter) untuk Cards
+            // Kita gunakan helper Str::limit agar rapi
+            $shortDesc = \Illuminate\Support\Str::limit(strip_tags($fullDesc), 120, '...');
+
+            // 3. Mapping Roles & Skills (Seperti sebelumnya)
+            $lookingFor = $team->roles->pluck('role_name')->toArray();
+            $skills = $team->roles->flatMap(function ($role) {
+                return $role->skills->pluck('skill_name');
+            })->unique()->values()->toArray();
+
             return [
                 'id' => $team->id,
-                'name' => $team->name,
+                'title' => $team->name,
                 'competition_name' => $team->competition_name,
+                'campus' => $team->leader->institution ?? 'Umum',
                 'category' => $team->category,
+
+                'short_desc' => $team->headline,
+                'description' => $fullDesc, 
+
+                'lookingFor' => $lookingFor,
+                'skills' => $skills,
+                'slots' => $team->users_count,
                 'max_members' => $team->max_members,
-                'total_members' => $team->users_count,
-                'slots_left' => $team->max_members - $team->users_count,
-                'is_full' => $team->users_count >= $team->max_members,
-                'leader' => [
-                    'id' => $team->leader->id,
-                    'name' => $team->leader->name,
-                    'institution' => $team->leader->institution,
-                    'major' => $team->leader->major,
-                ]
+                'posted' => $team->created_at->diffForHumans(),
+                'daysLeft' => now()->diffInDays($team->deadline, false)
             ];
         });
 
