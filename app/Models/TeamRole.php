@@ -8,7 +8,8 @@ class TeamRole extends Model
 {
     protected $fillable = [
         'team_id',
-        'role_name'
+        'role_name',
+        'max_slot'
     ];
 
     public function users()
