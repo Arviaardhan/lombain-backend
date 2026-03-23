@@ -15,46 +15,81 @@ class TeamRoleController extends Controller
         $request->validate([
             'role_name' => 'required|string',
             'max_slot' => 'required|integer|min:1',
-            'skills' => 'array'
+            'skills' => 'nullable|array' // Tambahkan nullable
         ]);
 
-        DB::transaction(function () use ($request, $teamId) {
+        // Gunakan try catch agar kita tahu errornya apa
+        try {
+            $newRole = DB::transaction(function () use ($request, $teamId) {
+                $role = TeamRole::create([
+                    'team_id' => $teamId,
+                    'role_name' => $request->role_name,
+                    'max_slot' => $request->max_slot
+                ]);
 
-            $role = TeamRole::create([
-                'team_id' => $teamId,
-                'role_name' => $request->role_name,
-                'max_slot' => $request->max_slot
-            ]);
-
-            if ($request->skills) {
-                foreach ($request->skills as $skill) {
-                    $role->skills()->create([
-                        'skill_name' => $skill
-                    ]);
+                if ($request->has('skills')) {
+                    foreach ($request->skills as $skill) {
+                        $role->skills()->create([
+                            'skill_name' => $skill
+                        ]);
+                    }
                 }
-            }
-        });
+                return $role;
+            });
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Role berhasil dibuat'
-        ]);
+            return response()->json([
+                'success' => true,
+                'message' => 'Role berhasil dibuat',
+                'data' => $newRole // Kembalikan data role baru untuk Next.js
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage() // Ini akan kasih tahu error aslinya di Postman
+            ], 500);
+        }
     }
 
     // UPDATE ROLE
     public function updateRole(Request $request, $roleId)
     {
-        $role = TeamRole::findOrFail($roleId);
-
-        $role->update([
-            'role_name' => $request->role_name ?? $role->role_name,
-            'max_slot' => $request->max_slot ?? $role->max_slot
+        $request->validate([
+            'role_name' => 'required|string',
+            'max_slot' => 'required|integer|min:1',
+            'skills' => 'nullable|array'
         ]);
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Role berhasil diupdate'
-        ]);
+        try {
+            $role = TeamRole::findOrFail($roleId);
+
+            DB::transaction(function () use ($request, $role) {
+                // 1. Update data Role utama
+                $role->update([
+                    'role_name' => $request->role_name,
+                    'max_slot' => $request->max_slot
+                ]);
+
+                // 2. Sinkronisasi Skill (Hapus lama, buat baru)
+                if ($request->has('skills')) {
+                    $role->skills()->delete(); // Hapus semua skill lama
+                    foreach ($request->skills as $skillName) {
+                        $role->skills()->create([
+                            'skill_name' => $skillName
+                        ]);
+                    }
+                }
+            });
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Role and Skills updated successfully'
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage()
+            ], 500);
+        }
     }
 
     // DELETE ROLE

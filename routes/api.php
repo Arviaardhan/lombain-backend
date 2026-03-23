@@ -35,6 +35,8 @@ Route::get('/explore/teams', [ExploreController::class, 'index']);
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('/teams/assign-role', [TeamManagementController::class, 'assignRole']);
 
+    Route::post('/teams/invite', [TeamManagementController::class, 'invite']);
+
     // Team
     Route::post('/create-teams', [TeamController::class, 'store']);
     Route::get('/teams/{id}', [TeamController::class, 'show']);
@@ -47,15 +49,14 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Management
     Route::get('/teams/{id}/requests', [TeamManagementController::class, 'requests']);
-    Route::post('/teams/invite', [TeamManagementController::class, 'invite']);
     Route::post('/teams/respond-invite', [TeamManagementController::class, 'respondInvite']);
     Route::post('/teams/reject/{id}', [TeamManagementController::class, 'reject']);
     Route::delete('/teams/{teamId}/members/{userId}', [TeamManagementController::class, 'removeMember']);
 
     // Roles
-    Route::post('/teams/{id}/roles', [TeamRoleController::class, 'store']);
-    Route::put('/update-roles/{id}', [TeamRoleController::class, 'update']);
-    Route::delete('/delete-roles/{id}', [TeamRoleController::class, 'destroy']);
+    Route::post('/teams/{id}/roles', [TeamRoleController::class, 'storeRole']);
+    Route::put('/update-roles/{id}', [TeamRoleController::class, 'updateRole']);
+    Route::delete('/delete-roles/{id}', [TeamRoleController::class, 'deleteRole']);
 
     // Dashboard
     Route::get('/user/dashboard', [UserDashboardController::class, 'index']);
@@ -68,5 +69,5 @@ Route::middleware('auth:sanctum')->group(function () {
     
     // Profil orang lain (Talents)
     Route::get('/talents/{id}', [UserProfileController::class, 'show']);
-    Route::get('/talents', [UserProfileController::class, 'index'])->middleware('auth:sanctum');
+    Route::get('/talents', [UserSearchController::class, 'search']);
 });

@@ -60,7 +60,8 @@ class AuthController extends Controller
             'institution' => 'nullable|string|max:255',
             'major' => 'nullable|string|max:255',
             'skill_category_id' => 'nullable|exists:skill_categories,id',
-            'custom_skill' => 'nullable|string'
+            'custom_skill' => 'nullable|string',
+            'skills' => 'required|array|min:1',
         ]);
 
         if (!$request->skill_category_id && !$request->custom_skill) {
@@ -88,6 +89,7 @@ class AuthController extends Controller
             'major' => $request->major,
             'skill_category_id' => $skillCategoryId,
             'custom_skill' => $customSkill,
+            'skills' => $request->skills,
         ]);
 
         $token = $user->createToken('auth_token')->plainTextToken;

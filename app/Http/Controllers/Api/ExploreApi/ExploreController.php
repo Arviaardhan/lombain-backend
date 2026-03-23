@@ -23,6 +23,8 @@ class ExploreController extends Controller
             // Kita gunakan helper Str::limit agar rapi
             $shortDesc = \Illuminate\Support\Str::limit(strip_tags($fullDesc), 120, '...');
 
+            $daysLeft = $team->deadline ? now()->diffInDays(\Carbon\Carbon::parse($team->deadline), false) : null;
+
             // 3. Mapping Roles & Skills (Seperti sebelumnya)
             $lookingFor = $team->roles->pluck('role_name')->toArray();
             $skills = $team->roles->flatMap(function ($role) {
@@ -35,16 +37,15 @@ class ExploreController extends Controller
                 'competition_name' => $team->competition_name,
                 'campus' => $team->leader->institution ?? 'Umum',
                 'category' => $team->category,
-
-                'short_desc' => $team->headline,
-                'description' => $fullDesc, 
-
-                'lookingFor' => $lookingFor,
-                'skills' => $skills,
-                'slots' => $team->users_count,
+                'headline' => $team->headline, // Pastikan ini dikirim
+                'description' => $fullDesc,
+                'lookingFor' => $lookingFor, // Array of strings
+                'skills' => $skills, // Array of strings
+                'total_members' => $team->users_count, // Kita beri nama yang jelas
                 'max_members' => $team->max_members,
                 'posted' => $team->created_at->diffForHumans(),
-                'daysLeft' => now()->diffInDays($team->deadline, false)
+                'daysLeft' => $daysLeft,
+                'is_closing_soon' => ($daysLeft !== null && $daysLeft <= 3 && $daysLeft >= 0)
             ];
         });
 

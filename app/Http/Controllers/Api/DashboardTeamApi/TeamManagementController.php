@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Http\Controllers\Api\DashboardTeamAPi;
+namespace App\Http\Controllers\Api\DashboardTeamApi;
 
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\DB;
 use App\Events\UserJoinedTeam;
 use App\Models\TeamRole;
 use App\Models\Team;
+use Illuminate\Support\Facades\Validator;
 
 class TeamManagementController extends Controller
 {
@@ -29,42 +30,65 @@ class TeamManagementController extends Controller
 
     public function invite(Request $request)
     {
-        $request->validate([
-            'team_id' => 'required|exists:teams,id',
-            'user_id' => 'required|exists:users,id',
+        // 1. Validasi dengan pesan error yang jelas
+        $validator = Validator::make($request->all(), [
+            'team_id' => 'required|integer|exists:teams,id',
+            'user_id' => 'required|integer|exists:users,id',
         ]);
 
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Data tidak valid.',
+                'errors' => $validator->errors()
+            ], 400);
+        }
+
+        // 2. Cek Kepemilikan Tim
         $team = DB::table('teams')
             ->where('id', $request->team_id)
             ->where('leader_id', auth()->id())
             ->first();
 
         if (!$team) {
-            return response()->json(['message' => 'Hanya leader yang bisa mengundang'], 403);
+            return response()->json([
+                'success' => false,
+                'message' => 'Hanya leader yang bisa mengundang'
+            ], 403);
         }
 
+        // 3. Cek apakah sudah ada hubungan (Member/Invited/Pending)
         $exists = DB::table('team_user')
             ->where('team_id', $request->team_id)
             ->where('user_id', $request->user_id)
+            ->whereIn('status', ['invited', 'pending', 'accepted'])
             ->exists();
 
         if ($exists) {
-            return response()->json(['message' => 'User sudah ada di tim atau sudah di-invite'], 400);
+            return response()->json([
+                'success' => false,
+                'message' => 'User sudah ada di tim atau sudah di-invite'
+            ], 400);
         }
 
+        // 4. Eksekusi Insert
         DB::table('team_user')->insert([
             'team_id' => $request->team_id,
             'user_id' => $request->user_id,
             'status' => 'invited',
+            'note' => $request->note, // Tambahkan ini jika di tabel ada kolom note
             'created_at' => now(),
             'updated_at' => now(),
         ]);
 
-        event(new UserJoinedTeam("Kamu diundang bergabung ke tim: " . $team->name, $request->user_id));
+        // 5. Broadcast Event
+        if (class_exists(UserJoinedTeam::class)) {
+            event(new UserJoinedTeam("Kamu diundang bergabung ke tim: " . $team->name, $request->user_id));
+        }
 
         return response()->json([
             'success' => true,
-            'message' => 'Undangan berhasil dikirim secara real-time!'
+            'message' => 'Undangan berhasil dikirim!'
         ]);
     }
 
@@ -279,8 +303,8 @@ class TeamManagementController extends Controller
             ->where('team_id', $teamId)
             ->where('user_id', $userId)
             ->update([
-                'status' => 'pending', 
-                'role_id' => null,     
+                'status' => 'pending',
+                'role_id' => null,
                 'updated_at' => now()
             ]);
 

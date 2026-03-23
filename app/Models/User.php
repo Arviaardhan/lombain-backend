@@ -28,7 +28,11 @@ class User extends Authenticatable
         'institution',
         'major',
         'skill_category_id',
-        'custom_skill'
+        'skills',
+        'bio',
+        'github_url',
+        'linkedin_url',
+        'portfolio_url'
     ];
 
     /**
@@ -51,8 +55,13 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'skills' => 'array',
         ];
     }
+
+    protected $casts = [
+        'skills' => 'array',
+    ];
 
     public function skillCategory()
     {
@@ -62,7 +71,7 @@ class User extends Authenticatable
     public function teams()
     {
         return $this->belongsToMany(Team::class, 'team_user')
-            ->withPivot('status', 'role', 'role_id')
+            ->withPivot('status', 'role', 'role_id', 'role_name')
             ->withTimestamps();
     }
 
@@ -71,5 +80,17 @@ class User extends Authenticatable
         return $this->belongsToMany(Team::class, 'team_user')
             ->withPivot('status', 'role', 'role_id')
             ->withTimestamps();
+    }
+
+    public function getAvatarAttribute($value)
+    {
+        if (!$value)
+            return null;
+        return asset('storage/' . $value); // Sesuaikan dengan folder simpanmu
+    }
+
+    public function ledTeams()
+    {
+        return $this->hasMany(Team::class, 'leader_id');
     }
 }

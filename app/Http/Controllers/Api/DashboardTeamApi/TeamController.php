@@ -31,7 +31,8 @@ class TeamController extends Controller
             'category' => 'required|string',
             'max_members' => 'required|integer|min:1',
             'deadline' => 'required|date',
-            'roles' => 'required|array'
+            'roles' => 'required|array',
+            'leader_role_name' => 'required|string|max:100'
         ]);
 
         $user = $request->user();
@@ -56,6 +57,7 @@ class TeamController extends Controller
                 'team_id' => $team->id,
                 'user_id' => $user->id,
                 'role' => 'leader',
+                'role_name' => $request->leader_role_name,
                 'status' => 'accepted',
                 'created_at' => now(),
                 'updated_at' => now()
@@ -89,38 +91,19 @@ class TeamController extends Controller
     // TEAM DETAIL
     public function show($id)
     {
-        $team = Team::with([
-            'leader',
-            'roles.skills',
-            'users' => function ($q) {
-                $q->wherePivot('status', 'accepted')
-                    ->withPivot('role_id', 'status');
-            }
-        ])->findOrFail($id);
+        $user = auth()->user();
+        $team = Team::with(['leader', 'roles.skills', 'users'])->find($id);
 
-        // add slot info
-        $roles = $team->roles->map(function ($role) use ($team) {
-            $filled = DB::table('team_user')
-                ->where('team_id', $team->id)
-                ->where('role_id', $role->id)
-                ->where('status', 'accepted')
-                ->count();
-
-            return [
-                'id' => $role->id,
-                'role_name' => $role->role_name,
-                'max_slot' => $role->max_slot,
-                'filled' => $filled,
-                'skills' => $role->skills
-            ];
-        });
+        // Cek status join user saat ini
+        $userStatus = DB::table('team_user')
+            ->where('team_id', $id)
+            ->where('user_id', $user->id)
+            ->value('status'); // Mengambil string status: 'pending', 'accepted', dll.
 
         return response()->json([
             'success' => true,
-            'data' => [
-                ...$team->toArray(),
-                'roles' => $roles
-            ]
+            'data' => $team,
+            'my_status' => $userStatus ?? 'idle' // Kirim status ke frontend
         ]);
     }
 
