@@ -1,0 +1,62 @@
+name: Deploy Laravel to FTP
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 1. Setup PHP Environment
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5' # Sesuaikan dengan versi Laravel Anda
+          extensions: mbstring, xml, ctype, iconv, mysql, zip
+          tools: composer:v2
+
+      # 2. Install Composer Dependencies (Production)
+      - name: Install Dependencies
+        run: |
+          composer install --no-ansi --no-dev --no-interaction --no-plugins --no-progress --no-scripts --optimize-autoloader
+
+      # 3. Prepare Laravel (Optimization)
+      # Kita menjalankan optimization di runner agar file bootstrap/cache terupdate
+      - name: Optimize Laravel
+        run: |
+          php artisan config:cache
+          php artisan route:cache
+          php artisan view:cache
+
+      # 4. Zip Project (Excluding unnecessary files)
+      # Menghapus file dev, tests, dan git agar size upload lebih ringan
+      - name: Zip project
+        run: |
+          mkdir deploy
+          zip -r deploy/deploy.zip . \
+            -x "deploy/*" \
+            -x ".git*" \
+            -x "storage/*.php" \
+            -x "storage/framework/sessions/*" \
+            -x "storage/framework/views/*" \
+            -x "storage/logs/*" \
+            -x "tests/*" \
+            -x "node_modules/*" \
+            -x ".env"
+
+      # 5. Upload via FTP
+      - name: Upload ZIP via FTP
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.4
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          local-dir: deploy/
+          server-dir: /
+          dangerous-clean-slate: false
