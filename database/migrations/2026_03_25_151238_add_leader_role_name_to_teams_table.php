@@ -10,8 +10,8 @@ return new class extends Migration {
      */
     public function up(): void
     {
-        Schema::table('team_user', function (Blueprint $table) {
-            $table->text('note')->nullable()->after('role_id');
+        Schema::table('teams', function (Blueprint $table) {
+            $table->string('leader_role_name')->nullable()->after('leader_id');
         });
     }
 
@@ -20,8 +20,8 @@ return new class extends Migration {
      */
     public function down(): void
     {
-        Schema::table('team_user', function (Blueprint $table) {
-            $table->dropColumn('note');
+        Schema::table('teams', function (Blueprint $table) {
+            $table->dropColumn('leader_role_name');
         });
     }
 };

@@ -33,6 +33,8 @@ Route::get('/explore/teams', [ExploreController::class, 'index']);
 
 // Protected Routes
 Route::middleware('auth:sanctum')->group(function () {
+    Route::post('/teams/respond-invite', [TeamManagementController::class, 'respondInvite']);
+
     Route::post('/teams/assign-role', [TeamManagementController::class, 'assignRole']);
 
     Route::post('/teams/invite', [TeamManagementController::class, 'invite']);
@@ -47,11 +49,16 @@ Route::middleware('auth:sanctum')->group(function () {
     // My Teams
     Route::get('/my/teams', [UserTeamController::class, 'myTeams']);
 
+    Route::post('/notifications/mark-as-read', function (Request $request) {
+        $request->user()->unreadNotifications->markAsRead();
+        return response()->json(['success' => true]);
+    })->middleware('auth:sanctum');
+
     // Management
     Route::get('/teams/{id}/requests', [TeamManagementController::class, 'requests']);
-    Route::post('/teams/respond-invite', [TeamManagementController::class, 'respondInvite']);
     Route::post('/teams/reject/{id}', [TeamManagementController::class, 'reject']);
     Route::delete('/teams/{teamId}/members/{userId}', [TeamManagementController::class, 'removeMember']);
+    Route::post('/teams/{id}/finalize', [TeamManagementController::class, 'finalize']);
 
     // Roles
     Route::post('/teams/{id}/roles', [TeamRoleController::class, 'storeRole']);
@@ -66,7 +73,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // Profil sendiri
     Route::get('/profile', [UserProfileController::class, 'show']);
     Route::post('/profile/update', [UserProfileController::class, 'update']);
-    
+
     // Profil orang lain (Talents)
     Route::get('/talents/{id}', [UserProfileController::class, 'show']);
     Route::get('/talents', [UserSearchController::class, 'search']);

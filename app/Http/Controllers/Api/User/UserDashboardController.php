@@ -24,11 +24,16 @@ class UserDashboardController extends Controller
                 'users' => function ($q) {
                     $q->where('team_user.status', 'accepted')
                         ->select('users.id', 'users.name', 'users.avatar')
-                        ->withPivot('role'); // Penting untuk menampilkan role di UI
+                        ->withPivot('role');
                 }
             ])
             ->latest()
-            ->get();
+            ->get()
+            ->map(function ($team) {
+                // Leader dihitung +1
+                $team->member_count = $team->member_count + 1;
+                return $team;
+            });
 
         $managedTeamIds = $myManagedTeams->pluck('id');
 
@@ -64,15 +69,25 @@ class UserDashboardController extends Controller
                 ->where('team_user.status', 'accepted')
                 ->where('leader_id', '!=', $user->id);
         })
+            ->withCount([
+                'users as member_count' => function ($q) {
+                    $q->where('team_user.status', 'accepted');
+                }
+            ])
             ->with('leader:id,name,avatar')
             ->with([
                 'users' => function ($q) {
                     $q->where('team_user.status', 'accepted')
                         ->select('users.id', 'users.name', 'users.avatar')
-                        ->withPivot('role');
+                        ->withPivot('role', 'status');
                 }
             ])
-            ->get();
+            ->get()
+            ->map(function ($team) {
+                // Member lain + Dirinya + 1 Leader
+                $team->member_count = $team->member_count + 1;
+                return $team;
+            });
 
         // 5. Permintaan yang sedang kita kirim ke tim lain
         $mySentRequests = DB::table('team_user')
@@ -104,9 +119,10 @@ class UserDashboardController extends Controller
                 'joined_teams' => $myJoinedTeams,
                 'sent_requests' => $mySentRequests,
                 'invites' => $myInvites,
-                'notifications' => [
-                    'incoming_requests_total' => $incomingRequestsCount
-                ]
+                'notifications' => $user->notifications()->latest()->take(15)->get(),
+
+                // Metadata tambahan jika butuh count
+                'unread_notifications_count' => $user->unreadNotifications()->count(),
             ]
         ]);
     }

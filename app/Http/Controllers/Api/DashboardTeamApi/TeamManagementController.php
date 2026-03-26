@@ -8,7 +8,10 @@ use Illuminate\Support\Facades\DB;
 use App\Events\UserJoinedTeam;
 use App\Models\TeamRole;
 use App\Models\Team;
+use App\Models\User;
+use App\Notifications\TeamStatusNotification;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Log;
 
 class TeamManagementController extends Controller
 {
@@ -30,10 +33,10 @@ class TeamManagementController extends Controller
 
     public function invite(Request $request)
     {
-        // 1. Validasi dengan pesan error yang jelas
         $validator = Validator::make($request->all(), [
             'team_id' => 'required|integer|exists:teams,id',
             'user_id' => 'required|integer|exists:users,id',
+            'note' => 'nullable|string|max:500',
         ]);
 
         if ($validator->fails()) {
@@ -44,9 +47,7 @@ class TeamManagementController extends Controller
             ], 400);
         }
 
-        // 2. Cek Kepemilikan Tim
-        $team = DB::table('teams')
-            ->where('id', $request->team_id)
+        $team = Team::where('id', $request->team_id)
             ->where('leader_id', auth()->id())
             ->first();
 
@@ -57,164 +58,202 @@ class TeamManagementController extends Controller
             ], 403);
         }
 
-        // 3. Cek apakah sudah ada hubungan (Member/Invited/Pending)
-        $exists = DB::table('team_user')
+        $existing = DB::table('team_user')
             ->where('team_id', $request->team_id)
             ->where('user_id', $request->user_id)
-            ->whereIn('status', ['invited', 'pending', 'accepted'])
-            ->exists();
+            ->first();
 
-        if ($exists) {
+        if ($existing && in_array($existing->status, ['invited', 'pending', 'accepted', 'assigned'])) {
             return response()->json([
                 'success' => false,
-                'message' => 'User sudah ada di tim atau sudah di-invite'
+                'message' => 'User sudah ada di tim atau sedang diproses.'
             ], 400);
         }
 
-        // 4. Eksekusi Insert
-        DB::table('team_user')->insert([
-            'team_id' => $request->team_id,
-            'user_id' => $request->user_id,
-            'status' => 'invited',
-            'note' => $request->note, // Tambahkan ini jika di tabel ada kolom note
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
+        if ($existing && $existing->status === 'rejected') {
+            // UPDATE jika sebelumnya pernah direject
+            DB::table('team_user')
+                ->where('id', $existing->id)
+                ->update([
+                    'status' => 'invited',
+                    'note' => $request->note,
+                    'updated_at' => now(),
+                ]);
+        } else {
+            // INSERT jika benar-benar baru
+            DB::table('team_user')->insert([
+                'team_id' => $request->team_id,
+                'user_id' => $request->user_id,
+                'status' => 'invited',
+                'note' => $request->note,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
 
-        // 5. Broadcast Event
+        // --- PROSES NOTIFIKASI ---
+        $targetUser = User::find($request->user_id);
+        if ($targetUser) {
+            try {
+                // Siapkan detail notifikasi
+                $details = [
+                    'subject' => 'Undangan Bergabung Tim 🚀',
+                    'message' => 'Kamu diundang oleh ' . auth()->user()->name . ' untuk bergabung ke tim ' . $team->name . '.',
+                    'action_url' => url('/dashboard/invitations'),
+                    'team_id' => $team->id
+                ];
+
+                // Kirim Notifikasi (Email + DB)
+                $targetUser->notify(new TeamStatusNotification($details));
+
+            } catch (\Exception $e) {
+                // Jika email gagal/timeout, tetap biarkan database sukses agar user tidak melihat error 500
+                Log::error("Email Notification Error: " . $e->getMessage());
+            }
+        }
+
+        // Broadcast Event untuk Real-time (Jika ada)
         if (class_exists(UserJoinedTeam::class)) {
             event(new UserJoinedTeam("Kamu diundang bergabung ke tim: " . $team->name, $request->user_id));
         }
 
+        // WAJIB RETURN JSON DI SINI
         return response()->json([
             'success' => true,
             'message' => 'Undangan berhasil dikirim!'
-        ]);
+        ], 200);
     }
 
     public function respondInvite(Request $request)
     {
         $request->validate([
             'invite_id' => 'required|exists:team_user,id',
-            'action' => 'required|in:accept,reject' // Hanya boleh isi accept atau reject
+            'action' => 'required|in:accept,reject'
         ]);
 
-        $status = $request->action === 'accept' ? 'accepted' : 'rejected';
+        $invite = Team::join('team_user', 'teams.id', '=', 'team_user.team_id')
+            ->where('team_user.id', $request->invite_id)
+            ->select('teams.*', 'team_user.user_id as applicant_id')
+            ->first();
 
-        // Cari baris team_user berdasarkan invite_id dan pastikan milik user yang sedang login
-        $update = DB::table('team_user')
+        if (!$invite)
+            return response()->json(['message' => 'Not Found'], 404);
+
+        // ✅ FIX DI SINI
+        $status = $request->action === 'accept' ? 'assigned' : 'rejected';
+
+        DB::table('team_user')
             ->where('id', $request->invite_id)
-            ->where('user_id', auth()->id())
             ->update([
                 'status' => $status,
                 'updated_at' => now()
             ]);
 
-        if (!$update) {
-            return response()->json(['message' => 'Undangan tidak ditemukan atau akses ditolak'], 404);
+        $leader = User::find($invite->leader_id);
+        $userName = auth()->user()->name;
+
+        if ($leader) {
+            $details = [
+                'team_id' => $invite->id,
+                'subject' => $status === 'assigned'
+                    ? 'Undangan Diterima! 🎉'
+                    : 'Undangan Ditolak ❌',
+                'message' => "User {$userName} telah " .
+                    ($status === 'assigned'
+                        ? 'bergabung dengan'
+                        : 'menolak undangan') .
+                    " tim {$invite->name}.",
+                'action_url' => url('/dashboard'),
+            ];
+
+            $leader->notify(new TeamStatusNotification($details));
         }
 
-        return response()->json([
-            'success' => true,
-            'message' => "Undangan berhasil " . ($request->action === 'accept' ? 'diterima' : 'ditolak')
-        ]);
+        return response()->json(['success' => true]);
     }
 
-    // APPROVE REQUEST + ASSIGN ROLE (Drag & Drop)
     public function assignRole(Request $request)
     {
         $request->validate([
-            'request_id' => 'required|exists:team_user,id',
-            'role_id' => 'required|exists:team_roles,id'
+            'team_id' => 'required|exists:teams,id',
+            'user_id' => 'required|exists:users,id',
+            'role_id' => 'required|exists:team_roles,id',
         ]);
 
-        try {
-            DB::transaction(function () use ($request) {
-
-                $join = DB::table('team_user')
-                    ->join('teams', 'teams.id', '=', 'team_user.team_id')
-                    ->where('team_user.id', $request->request_id)
-                    ->where('teams.leader_id', auth()->id())
-                    ->select('team_user.*')
-                    ->first();
-
-                if (!$join) {
-                    throw new \Exception('Kamu tidak memiliki akses atau request tidak ditemukan');
-                }
-
-                // hitung slot terisi
-                $usedSlot = DB::table('team_user')
-                    ->where('team_id', $join->team_id)
-                    ->where('role_id', $request->role_id)
-                    ->where('status', 'accepted')
-                    ->lockForUpdate()
-                    ->count();
-
-                $role = DB::table('team_roles')
-                    ->where('id', $request->role_id)
-                    ->lockForUpdate()
-                    ->first();
-
-                if ($usedSlot >= $role->max_slot) {
-                    throw new \Exception('Slot role sudah penuh');
-                }
-
-                DB::table('team_user')
-                    ->where('id', $request->request_id)
-                    ->update([
-                        'status' => 'accepted',
-                        'role_id' => $request->role_id,
-                        'updated_at' => now()
-                    ]);
-            });
-
-            return response()->json([
-                'success' => true,
-                'message' => 'User berhasil di-assign ke role'
+        DB::table('team_user')
+            ->where('team_id', $request->team_id)
+            ->where('user_id', $request->user_id)
+            ->update([
+                'role_id' => $request->role_id,
+                'status' => 'assigned'
             ]);
 
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => $e->getMessage()
-            ], 400);
-        }
+        return response()->json([
+            'success' => true,
+            'message' => 'Role assigned'
+        ]);
     }
 
     public function teamStructure($teamId)
     {
-        // Pastikan hanya leader yang bisa melihat struktur manajemen ini
-        $team = DB::table('teams')->where('id', $teamId)->where('leader_id', auth()->id())->first();
+        $team = DB::table('teams')
+            ->where('id', $teamId)
+            ->where('leader_id', auth()->id())
+            ->first();
 
         if (!$team) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
-        // Ambil data Roles beserta Member yang sudah masuk (Accepted)
         $roles = TeamRole::where('team_id', $teamId)
             ->with([
                 'users' => function ($q) use ($teamId) {
                     $q->where('team_user.team_id', $teamId)
-                        ->where('team_user.status', 'accepted')
-                        ->select('users.id', 'users.name', 'users.avatar');
+                        ->whereIn('team_user.status', ['accepted', 'assigned', 'invited']);
                 }
             ])
-            ->with('skills') // Jika kamu pakai tabel skills untuk role tersebut
+            ->with('skills')
+            ->get();
+
+        // ✅ UNASSIGNED (Waiting List)
+        $unassigned = DB::table('team_user')
+            ->join('users', 'users.id', '=', 'team_user.user_id')
+            ->where('team_user.team_id', $teamId)
+            ->whereNull('team_user.role_id')
+            ->whereIn('team_user.status', ['accepted', 'assigned'])
+            // 🔥 TAMBAHKAN BARIS INI: Kecualikan sang Leader
+            ->where('users.id', '!=', $team->leader_id)
+            ->select(
+                'team_user.id as id',
+                'users.id as user_id',
+                'users.name',
+                'users.avatar'
+            )
             ->get();
 
         return response()->json([
             'success' => true,
-            'data' => $roles->map(function ($role) {
-                return [
-                    'id' => $role->id,
-                    'role_name' => $role->role_name,
-                    'max_slot' => $role->max_slot,
-                    'filled' => $role->users->count(),
-                    'is_full' => $role->users->count() >= $role->max_slot,
-                    'members' => $role->users,
-                    'required_skills' => $role->skills->pluck('skill_name'),
-                ];
-            })
+            'data' => [
+                'roles' => $roles->map(function ($role) {
+                    return [
+                        'id' => $role->id,
+                        'role_name' => $role->role_name,
+                        'max_slot' => $role->max_slot,
+                        'filled' => $role->users->where('pivot.status', 'accepted')->count(),
+                        'members' => $role->users->map(function ($u) {
+                            return [
+                                'id' => $u->id, // User ID
+                                'pivot_id' => $u->pivot->id, // Simpan pivot ID juga jika perlu
+                                'name' => $u->name,
+                                'avatar' => $u->avatar,
+                                'status' => $u->pivot->status
+                            ];
+                        }),
+                        'required_skills' => $role->skills->pluck('skill_name'),
+                    ];
+                }),
+                'unassigned' => $unassigned
+            ]
         ]);
     }
 
@@ -228,7 +267,6 @@ class TeamManagementController extends Controller
 
         try {
             DB::transaction(function () use ($request) {
-                // 1. Cek apakah yang akses adalah Leader
                 $team = DB::table('teams')
                     ->where('id', $request->team_id)
                     ->where('leader_id', auth()->id())
@@ -237,11 +275,10 @@ class TeamManagementController extends Controller
                 if (!$team)
                     throw new \Exception('Unauthorized');
 
-                // 2. Cek slot di role tujuan
                 $usedSlot = DB::table('team_user')
                     ->where('team_id', $request->team_id)
                     ->where('role_id', $request->new_role_id)
-                    ->where('status', 'accepted')
+                    ->whereIn('status', ['accepted', 'assigned'])
                     ->count();
 
                 $role = DB::table('team_roles')->where('id', $request->new_role_id)->first();
@@ -250,9 +287,8 @@ class TeamManagementController extends Controller
                     throw new \Exception('Role tujuan sudah penuh');
                 }
 
-                // 3. Update role_id user tersebut
                 DB::table('team_user')
-                    ->where('team_id', $request->team_id)
+                    ->where('id', $request->team_id)
                     ->where('user_id', $request->user_id)
                     ->update([
                         'role_id' => $request->new_role_id,
@@ -261,15 +297,16 @@ class TeamManagementController extends Controller
             });
 
             return response()->json(['success' => true, 'message' => 'Role berhasil dipindahkan']);
-
         } catch (\Exception $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage()], 400);
         }
     }
 
-    // REJECT REQUEST
     public function reject($requestId)
     {
+        $join = DB::table('team_user')->where('id', $requestId)->first();
+        $team = Team::find($join->team_id);
+
         DB::table('team_user')
             ->where('id', $requestId)
             ->update([
@@ -277,40 +314,72 @@ class TeamManagementController extends Controller
                 'updated_at' => now()
             ]);
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Request ditolak'
-        ]);
-    }
-
-    // REMOVE MEMBER
-    public function removeMember($teamId, $userId)
-    {
-        if ($userId == auth()->id()) {
-            return response()->json(['message' => 'Leader tidak bisa keluar dengan cara ini'], 400);
+        // --- NOTIFIKASI REJECT ---
+        $targetUser = User::find($join->user_id);
+        if ($targetUser) {
+            try {
+                $targetUser->notify(new TeamStatusNotification([
+                    'subject' => 'Update Status Lamaran Tim 📋',
+                    'message' => 'Maaf, lamaran kamu untuk tim ' . $team->name . ' belum bisa diterima saat ini. Tetap semangat!',
+                    'action_url' => url('/explore/teams'),
+                    'team_id' => $team->id
+                ]));
+            } catch (\Exception $e) {
+                Log::error("Reject Notification Error: " . $e->getMessage());
+            }
         }
 
-        $exists = DB::table('team_user')
-            ->where('team_id', $teamId)
-            ->where('user_id', $userId)
-            ->exists();
+        return response()->json(['success' => true, 'message' => 'Request ditolak']);
+    }
 
-        if (!$exists) {
-            return response()->json(['message' => 'Member tidak ditemukan'], 404);
+    public function removeMember($teamId, $userId)
+    {
+        $team = DB::table('teams')->where('id', $teamId)->first();
+
+        if ($team->leader_id == $userId) {
+            return response()->json(['message' => 'Leader tidak bisa dihapus'], 400);
         }
 
         DB::table('team_user')
             ->where('team_id', $teamId)
             ->where('user_id', $userId)
-            ->update([
-                'status' => 'pending',
-                'role_id' => null,
-                'updated_at' => now()
-            ]);
+            ->delete();
 
         return response()->json([
-            'success' => true,
-            'message' => 'Member berhasil dikembalikan ke daftar request'
+            'success' => true
+        ]);
+    }
+
+    public function finalizeTeam($teamId)
+    {
+        $team = DB::table('teams')
+            ->where('id', $teamId)
+            ->where('leader_id', auth()->id())
+            ->first();
+
+        if (!$team) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        // ✅ assigned → accepted
+        DB::table('team_user')
+            ->where('team_id', $teamId)
+            ->where('status', 'assigned')
+            ->update(['status' => 'accepted']);
+
+        // ❌ lainnya → rejected
+        DB::table('team_user')
+            ->where('team_id', $teamId)
+            ->whereIn('status', ['pending', 'invited'])
+            ->update(['status' => 'rejected']);
+
+        // 🔒 lock team
+        DB::table('teams')
+            ->where('id', $teamId)
+            ->update(['status' => 'locked']);
+
+        return response()->json([
+            'success' => true
         ]);
     }
 
@@ -318,16 +387,13 @@ class TeamManagementController extends Controller
     {
         $request->validate([
             'status_akhir' => 'required|in:winner,top_2,top_3,finalist,participant',
-            'evidence_link' => 'nullable|url',
             'achievement_photo' => 'nullable|image|max:2048',
-            'reflection' => 'nullable|string'
         ]);
 
         $team = Team::where('id', $teamId)->where('leader_id', auth()->id())->first();
 
-        if (!$team) {
+        if (!$team)
             return response()->json(['message' => 'Unauthorized'], 403);
-        }
 
         $photoPath = $team->achievement_photo;
         if ($request->hasFile('achievement_photo')) {
@@ -338,14 +404,9 @@ class TeamManagementController extends Controller
             'status' => 'completed',
             'rank' => $request->rank,
             'achievement_photo' => $photoPath,
-            'description' => $request->testimonial ?? $team->description,
             'updated_at' => now()
         ]);
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Selamat! Pencapaian tim telah tercatat.',
-            'data' => $team
-        ]);
+        return response()->json(['success' => true, 'message' => 'Pencapaian tim telah tercatat.']);
     }
 }

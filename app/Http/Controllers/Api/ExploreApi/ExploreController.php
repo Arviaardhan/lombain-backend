@@ -5,31 +5,40 @@ namespace App\Http\Controllers\Api\ExploreApi;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\Team;
+use Illuminate\Support\Str;
+use Carbon\Carbon;
 
 class ExploreController extends Controller
 {
     public function index()
     {
+        // Eager load leader dan roles agar data lengkap
         $teams = Team::with(['leader', 'roles.skills'])
             ->withCount('users')
             ->latest()
             ->paginate(10);
 
         $formatted = $teams->getCollection()->map(function ($team) {
-            // 1. Ambil deskripsi asli dari database
             $fullDesc = $team->description ?? "Ayo bergabung dengan tim kami!";
 
-            // 2. Buat deskripsi singkat (Limit 120 karakter) untuk Cards
-            // Kita gunakan helper Str::limit agar rapi
-            $shortDesc = \Illuminate\Support\Str::limit(strip_tags($fullDesc), 120, '...');
+            // Hitung sisa hari
+            $daysLeft = $team->deadline ? now()->diffInDays(Carbon::parse($team->deadline), false) : null;
 
-            $daysLeft = $team->deadline ? now()->diffInDays(\Carbon\Carbon::parse($team->deadline), false) : null;
-
-            // 3. Mapping Roles & Skills (Seperti sebelumnya)
+            // Mapping Roles & Skills
             $lookingFor = $team->roles->pluck('role_name')->toArray();
             $skills = $team->roles->flatMap(function ($role) {
                 return $role->skills->pluck('skill_name');
             })->unique()->values()->toArray();
+
+            $members = $team->users()
+                ->wherePivot('status', 'accepted')
+                ->get()
+                ->map(function ($user) {
+                    return [
+                        'first_name' => $user->first_name,
+                        'last_name' => $user->last_name,
+                    ];
+                });
 
             return [
                 'id' => $team->id,
@@ -37,13 +46,19 @@ class ExploreController extends Controller
                 'competition_name' => $team->competition_name,
                 'campus' => $team->leader->institution ?? 'Umum',
                 'category' => $team->category,
-                'headline' => $team->headline, // Pastikan ini dikirim
+                'headline' => $team->headline,
                 'description' => $fullDesc,
-                'lookingFor' => $lookingFor, // Array of strings
-                'skills' => $skills, // Array of strings
-                'total_members' => $team->users_count, // Kita beri nama yang jelas
+                'lookingFor' => $lookingFor,
+                'skills' => $skills,
+                'total_members' => $team->users_count,
                 'max_members' => $team->max_members,
                 'posted' => $team->created_at->diffForHumans(),
+                'deadline' => $team->deadline ? $team->deadline->format('Y-m-d') : null,
+                'leader' => [
+                    'first_name' => $team->leader->first_name ?? null,
+                    'last_name' => $team->leader->last_name ?? null,
+                ],
+                'members' => $members,
                 'daysLeft' => $daysLeft,
                 'is_closing_soon' => ($daysLeft !== null && $daysLeft <= 3 && $daysLeft >= 0)
             ];

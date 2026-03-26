@@ -26,33 +26,38 @@ class TeamController extends Controller
     {
         $request->validate([
             'name' => 'required|string',
-            'headline' => 'required|string|max:150',
+            'headline' => 'required|string|max:150', // Kalimat singkat untuk Card Explore
+            'description' => 'required|string',      // Visi / Deskripsi panjang tim
+            'objectives' => 'nullable|array',        // Poin-poin objektif tim
             'competition_name' => 'required|string',
             'category' => 'required|string',
             'max_members' => 'required|integer|min:1',
             'deadline' => 'required|date',
             'roles' => 'required|array',
+            'roles.*.role_name' => 'required|string',
+            'roles.*.description' => 'required|string', // Tanggung Jawab Role
             'leader_role_name' => 'required|string|max:100'
         ]);
 
         $user = $request->user();
 
-        DB::transaction(function () use ($request, $user, &$team) {
-
+        $team = DB::transaction(function () use ($request, $user) {
+            // 1. Simpan Data Tim Utama
             $team = Team::create([
                 'name' => $request->name,
                 'headline' => $request->headline,
                 'competition_name' => $request->competition_name,
-                'short_description' => $request->short_description,
                 'description' => $request->description,
+                'objectives' => $request->objectives ? json_encode($request->objectives) : null,
                 'category' => $request->category,
                 'max_members' => $request->max_members,
                 'leader_id' => $user->id,
                 'guidebook_url' => $request->guidebook_url,
-                'deadline' => $request->deadline
+                'deadline' => $request->deadline,
+                'leader_role_name' => $request->leader_role_name,
             ]);
 
-            // leader masuk team
+            // 2. Leader masuk ke tabel pivot team_user
             DB::table('team_user')->insert([
                 'team_id' => $team->id,
                 'user_id' => $user->id,
@@ -63,11 +68,11 @@ class TeamController extends Controller
                 'updated_at' => now()
             ]);
 
-            // create roles + skills
+            // 3. Create Roles + Skills
             foreach ($request->roles as $roleData) {
-
                 $role = $team->roles()->create([
-                    'role_name' => $roleData['role_name'] ?? 'General Member',
+                    'role_name' => $roleData['role_name'],
+                    'description' => $roleData['description'], // Tanggung Jawab
                     'max_slot' => $roleData['max_slot'] ?? 1,
                 ]);
 
@@ -79,6 +84,8 @@ class TeamController extends Controller
                     }
                 }
             }
+
+            return $team;
         });
 
         return response()->json([
@@ -138,6 +145,7 @@ class TeamController extends Controller
             'description' => 'nullable|string',
             'category' => 'sometimes|nullable|string',
             'deadline' => 'sometimes|nullable|date',
+            'leader_role_name' => 'sometimes|nullable|string|max:150'
         ]);
 
         $team->update($request->only([
@@ -148,7 +156,8 @@ class TeamController extends Controller
             'category',
             'max_members',
             'deadline',
-            'guidebook_url'
+            'guidebook_url',
+            'leader_role_name'
         ]));
 
         return response()->json([

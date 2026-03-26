@@ -70,13 +70,15 @@ class TeamRoleController extends Controller
                 ]);
 
                 // 2. Sinkronisasi Skill (Hapus lama, buat baru)
-                if ($request->has('skills')) {
-                    $role->skills()->delete(); // Hapus semua skill lama
-                    foreach ($request->skills as $skillName) {
-                        $role->skills()->create([
-                            'skill_name' => $skillName
-                        ]);
-                    }
+                if ($request->has('skills') && is_array($request->skills)) {
+                    $role->skills()->delete();
+
+                    // Gunakan map atau collect jika ingin lebih "Laravel Style"
+                    $newSkills = collect($request->skills)->map(function ($name) {
+                        return ['skill_name' => $name];
+                    })->toArray();
+
+                    $role->skills()->createMany($newSkills);
                 }
             });
 
