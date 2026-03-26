@@ -1,26 +1,38 @@
-## 📄 README.md - Backend (lombain-be)
+Untuk Backend, isinya akan serupa agar informasi tim dan institusi tetap konsisten, namun pada bagian deskripsi kita berikan sedikit penekanan pada sisi fungsionalitas API dan pengelolaan data agar juri tahu bahwa ini adalah sistem yang kompleks di balik layar.
 
-```markdown
-# lombain - Backend API 🧠
+Berikut adalah file README.md untuk folder lombain-backend:
 
-API inti untuk **lombain** yang menangani otentikasi, manajemen relasi tim yang kompleks, dan sistem notifikasi real-time.
+lombain (Backend API)
+Institusi
+Universitas Muria Kudus
 
-## 🛠 Tech Stack
-- **Framework**: [Laravel 11](https://laravel.com/)
-- **PHP Version**: 8.2+
-- **Database**: MySQL
-- **Authentication**: Laravel Sanctum
-- **Notification**: Database & Mail (SMTP)
-- **Log**: Laravel Log (Storage)
+Anggota Tim
+Ketua: Arvia Faustina Ardhan
 
-## 🚀 Fitur Backend
-- **Advanced Pivot Management**: Tabel `team_user` dengan status dinamis (`pending`, `accepted`, `assigned`, `rejected`).
-- **Role Assignment System**: Logika penempatan anggota ke role spesifik dalam tim.
-- **Team Finalization**: Endpoint untuk mengunci status tim menjadi `locked` dan mengirim notifikasi masal.
-- **Automated Rejection**: Sistem otomatis menolak pelamar tersisa saat tim dikunci.
-- **Activity Log & Notifications**: Riwayat aktivitas user dan pengiriman notifikasi ke email.
+Anggota 1: Muammad La'azidannak Rusda
 
-## ⚙️ Instalasi Lokal
-1. Clone repositori:
-   ```bash
-   git clone [https://github.com/username/lombain-be.git](https://github.com/username/lombain-be.git)
+Anggota 2: Abiyan Ilzam Pratama
+
+Deskripsi Karya
+Sisi Backend dari lombain merupakan pusat pemrosesan data (Engine) yang dibangun menggunakan Framework Laravel. Backend ini bertanggung jawab atas seluruh logika bisnis, keamanan, dan integrasi database untuk mendukung kolaborasi mahasiswa.
+
+Latar Belakang & Tujuan:
+Dalam sebuah platform kolaborasi, validasi data dan manajemen status anggota adalah hal yang krusial. Backend ini dibuat untuk memastikan bahwa setiap "Join Request" dikelola dengan aman, pembagian role anggota tidak melebihi kapasitas (slot), dan penguncian tim dilakukan secara sistematis guna menghindari kecurangan data saat kompetisi dimulai.
+
+Fitur Teknis Utama:
+
+Dynamic Role Management: Menangani alokasi anggota ke peran spesifik secara real-time.
+
+Waiting List System: Logika pemisahan antara pendaftar yang sudah diterima di tim namun belum memiliki posisi tetap.
+
+Automated Notification: Pengiriman notifikasi ke email dan sistem database setiap kali ada perubahan status aplikasi atau undangan tim.
+
+Team Finalization: Sistem pengamanan data yang mengunci formasi tim secara permanen untuk integritas data kompetisi.
+
+Secure Authentication: Menggunakan Laravel Sanctum untuk memastikan data pengguna dan tim terlindungi dengan enkripsi standar industri.
+
+Pemilihan Subtema:
+Backend ini mendukung subtema "Inovasi Teknologi Digital untuk Kolaborasi Akademik" dengan menyediakan infrastruktur data yang tangguh dan terukur, memungkinkan platform untuk menampung ribuan user mahasiswa dengan performa yang tetap terjaga.
+
+Link Website
+https://lombain.my.id (API Endpoint: https://lombain.my.id/api)
